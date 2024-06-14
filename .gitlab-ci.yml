@@ -1,0 +1,56 @@
+image: docker:18.09.7
+services:
+  - docker:18.09.7-dind
+
+variables:
+  IMAGE_NAME: tricker14/library
+  DOCKER_HOST: tcp://docker:2375
+
+cache:
+  paths:
+    - .m2/repository/
+    - target/
+
+stages:
+  - build
+  - test
+  - docker
+  - deploy
+
+maven-build:
+  image: maven:3.8.1-openjdk-17-slim
+  stage: build
+  tags: [1st runner]
+  script: "mvn clean package"
+  artifacts:
+    paths:
+      - target/*.jar
+
+maven-test:
+  image: maven:3.8.1-openjdk-17-slim
+  stage: test
+  tags: [2nd runner]
+  script: "mvn test"
+  artifacts:
+    paths:
+      - target/*.jar
+
+docker-build:
+  stage: docker
+  needs: [maven-build]
+  tags: [1st runner]
+  script:
+    - docker login -u $USERNAME_DOCKER -p $PASSWORD_DOCKER
+    - docker build -t $IMAGE_NAME:1.0 .
+    - docker push $IMAGE_NAME:1.0
+
+deploy:
+  stage: deploy
+  needs: [maven-test, docker-build]
+  tags: [1st runner]
+  only:
+    - main
+  script:
+    - docker login -u $USERNAME_DOCKER -p $PASSWORD_DOCKER
+    - docker pull $IMAGE_NAME:1.0
+    - docker run -d -p 8080:8080 --name library_container $IMAGE_NAME:1.0
